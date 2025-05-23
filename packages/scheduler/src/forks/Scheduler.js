@@ -74,7 +74,9 @@ if (hasPerformanceNow) {
 // 0b111111111111111111111111111111
 var maxSigned31BitInt = 1073741823;
 
-// Tasks are stored on a min heap
+
+// 两个任务队列：taskQueue普通任务，timerQueue延时任务
+// Tasks are stored on a min heap 都采用最小堆算法，每次取的优先级最高的
 var taskQueue: Array<Task> = [];
 var timerQueue: Array<Task> = [];
 
@@ -141,40 +143,62 @@ function handleTimeout(currentTime: number) {
   }
 }
 
+/**
+ * 任务调度核心函数：
+ * 执行任务工作循环 workLoop，处理待执行的任务
+  管理调度器状态（如是否有回调 / 超时任务）
+  处理任务执行中的异常
+  记录性能数据（如果启用了性能分析）
+  @param {*} initialTime 任务开始的时间
+ * */ 
 function flushWork(initialTime: number) {
   if (enableProfiling) {
     markSchedulerUnsuspended(initialTime);
   }
 
+  // 重置调度状态
   // We'll need a host callback the next time work is scheduled.
+  // 下次调度工作时需要一个宿主回调。
   isHostCallbackScheduled = false;
+  // 取消超时的任务
   if (isHostTimeoutScheduled) {
     // We scheduled a timeout but it's no longer needed. Cancel it.
+     // 我们之前调度了一个超时任务，但现在不再需要了，取消它。
     isHostTimeoutScheduled = false;
     cancelHostTimeout();
   }
 
   isPerformingWork = true;
+  // 当前任务优先等级
   const previousPriorityLevel = currentPriorityLevel;
   try {
     if (enableProfiling) {
       try {
+        // 核心
         return workLoop(initialTime);
       } catch (error) {
+        // 错误处理
         if (currentTask !== null) {
           const currentTime = getCurrentTime();
           // $FlowFixMe[incompatible-call] found when upgrading Flow
+          // / 标记当前任务为错误状态
           markTaskErrored(currentTask, currentTime);
           // $FlowFixMe[incompatible-use] found when upgrading Flow
+           // 从队列中移除该任务
           currentTask.isQueued = false;
         }
         throw error;
       }
     } else {
       // No catch in prod code path.
+      // 调用 workLoop 函数处理任务队列
       return workLoop(initialTime);
     }
   } finally {
+    // 最终清理工作
+    // 清空当前任务
+// 恢复之前的优先级
+// 标记调度器不再执行任务
     currentTask = null;
     currentPriorityLevel = previousPriorityLevel;
     isPerformingWork = false;
@@ -184,21 +208,33 @@ function flushWork(initialTime: number) {
     }
   }
 }
-
+/**
+  @param {*} initialTime 任务开始的时间
+ * 
+ * */ 
 function workLoop(initialTime: number) {
   let currentTime = initialTime;
+// 遍历timerQueue,判断是否有到期延时任务，有就放入taskQueue
   advanceTimers(currentTime);
+  // taskQueue中取一个任务
   currentTask = peek(taskQueue);
   while (
     currentTask !== null &&
     !(enableSchedulerDebugging && isSchedulerPaused)
   ) {
+    // shouldYieldToHost是否应该暂停，归还主线程
+    //currentTask.expirationtime>currenttime表示任务还没有过期
     if (currentTask.expirationTime > currentTime && shouldYieldToHost()) {
       // This currentTask hasn't expired, and we've reached the deadline.
+      // 任务没过期
+
+      // 跳出while
       break;
     }
+    // 没有进去上面的if，说明这个任务没过期，没有达到浏览器渲染的时候，有剩余的时间执行
     // $FlowFixMe[incompatible-use] found when upgrading Flow
     const callback = currentTask.callback;
+    // callback为function
     if (typeof callback === 'function') {
       // $FlowFixMe[incompatible-use] found when upgrading Flow
       currentTask.callback = null;
@@ -206,6 +242,7 @@ function workLoop(initialTime: number) {
       currentPriorityLevel = currentTask.priorityLevel;
       // $FlowFixMe[incompatible-use] found when upgrading Flow
       const didUserCallbackTimeout = currentTask.expirationTime <= currentTime;
+      // enableProfiling：数据资料收集
       if (enableProfiling) {
         // $FlowFixMe[incompatible-call] found when upgrading Flow
         markTaskRun(currentTask, currentTime);
@@ -236,18 +273,23 @@ function workLoop(initialTime: number) {
         advanceTimers(currentTime);
       }
     } else {
+      // 弹出
       pop(taskQueue);
     }
+    // 在取一个
     currentTask = peek(taskQueue);
   }
   // Return whether there's additional work
   if (currentTask !== null) {
     return true;
   } else {
+    // 从timerQueue取
     const firstTimer = peek(timerQueue);
     if (firstTimer !== null) {
+      // 延时任务 调用requestHostTimeout
       requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
     }
+    // 延时队列也完成了
     return false;
   }
 }
@@ -319,14 +361,24 @@ function unstable_wrapCallback<T: (...Array<mixed>) => mixed>(callback: T): T {
   };
 }
 
+
+/**
+ * @param {*} priorityLevel  优先级等级
+ * @param {*} callback  任务
+ * @param {*} options 配置
+ * */ 
+
 function unstable_scheduleCallback(
   priorityLevel: PriorityLevel,
   callback: Callback,
   options?: {delay: number},
 ): Task {
+  // 当前时间
   var currentTime = getCurrentTime();
 
   var startTime;
+  // 设置开始时间：
+  // 有延迟时间 delay + currentTime，否则为当前时间
   if (typeof options === 'object' && options !== null) {
     var delay = options.delay;
     if (typeof delay === 'number' && delay > 0) {
@@ -339,17 +391,18 @@ function unstable_scheduleCallback(
   }
 
   var timeout;
+  // 根据不同的 priorityLevel优先等级 来计算
   switch (priorityLevel) {
     case ImmediatePriority:
-      // Times out immediately
+      // Times out immediately 立即执行
       timeout = -1;
       break;
     case UserBlockingPriority:
-      // Eventually times out
+      // Eventually times out  最终会超时
       timeout = userBlockingPriorityTimeout;
       break;
     case IdlePriority:
-      // Never times out
+      // Never times out 永不超时
       timeout = maxSigned31BitInt;
       break;
     case LowPriority:
@@ -363,50 +416,62 @@ function unstable_scheduleCallback(
       break;
   }
 
+  // 过期时间：开始时间 + 延时时间
+  // expirationTime有些比startTime早，大多数比startTime晚，取决于timeout
   var expirationTime = startTime + timeout;
 
+  // 创建一个任务
   var newTask: Task = {
     id: taskIdCounter++,
     callback,
     priorityLevel,
     startTime,
     expirationTime,
-    sortIndex: -1,
+    sortIndex: -1,// 用于小顶堆排序(一种始终能从任务队列中拿去最紧急的任务)
   };
+
   if (enableProfiling) {
     newTask.isQueued = false;
   }
 
   if (startTime > currentTime) {
-    // This is a delayed task.
+    // This is a delayed task. 延时任务
     newTask.sortIndex = startTime;
+    // 添加到延时任务timerQueue中
     push(timerQueue, newTask);
+    // peek 拿任务
     if (peek(taskQueue) === null && newTask === peek(timerQueue)) {
-      // All tasks are delayed, and this is the task with the earliest delay.
+      // taskQueuere执行完  All tasks are delayed, and this is the task with the earliest delay.
+    // 一些设置
       if (isHostTimeoutScheduled) {
         // Cancel an existing timeout.
         cancelHostTimeout();
       } else {
         isHostTimeoutScheduled = true;
       }
-      // Schedule a timeout.
+      // Schedule a timeout. 延时任务使用requestHostTimeout调度任务
       requestHostTimeout(handleTimeout, startTime - currentTime);
     }
   } else {
+    // 不是延时任务/普通任务
     newTask.sortIndex = expirationTime;
+    // 加入 taskQueue
     push(taskQueue, newTask);
+
+    // 一些设置
     if (enableProfiling) {
       markTaskStart(newTask, currentTime);
       newTask.isQueued = true;
     }
-    // Schedule a host callback, if needed. If we're already performing work,
-    // wait until the next time we yield.
+    //  如有需要，安排主机回调。如果我们已在执行任务，则等待至下一次让步（yield）时处理。
+    // Schedule a host callback, if needed. If we're already performing work, wait until the next time we yield.
     if (!isHostCallbackScheduled && !isPerformingWork) {
       isHostCallbackScheduled = true;
+      // 进行任务调度 
       requestHostCallback();
     }
   }
-
+// 返回任务
   return newTask;
 }
 
@@ -459,7 +524,7 @@ function shouldYieldToHost(): boolean {
   const timeElapsed = getCurrentTime() - startTime;
   if (timeElapsed < frameInterval) {
     // The main thread has only been blocked for a really short amount of time;
-    // smaller than a single frame. Don't yield yet.
+    // smaller than a single frame. Don't yield yet. 很小超过一帧，不用管
     return false;
   }
   // Yield now.
@@ -486,10 +551,12 @@ function forceFrameRate(fps: number) {
 }
 
 const performWorkUntilDeadline = () => {
+  // requestHostCallback中: isMessageLoopRunning设置为true
   if (isMessageLoopRunning) {
+    // 当前时间
     const currentTime = getCurrentTime();
-    // Keep track of the start time so we can measure how long the main thread
-    // has been blocked.
+    // Keep track of the start time so we can measure how long the main thread has been blocked.
+    //全局变量 startTime：跟踪起始时间，以便测量主线程被阻塞的时长
     startTime = currentTime;
 
     // If a scheduler task throws, exit the current browser task so the
@@ -498,15 +565,22 @@ const performWorkUntilDeadline = () => {
     // Intentionally not using a try-catch, since that makes some debugging
     // techniques harder. Instead, if `flushWork` errors, then `hasMoreWork` will
     // remain true, and we'll continue the work loop.
+    // 若调度任务抛出异常，则退出当前浏览器任务，以便观察错误。
+    // 故意不使用 try-catch，因为这会使某些调试技术更困难。
+    // 相反，如果flushWork出错，hasMoreWork将保持为 true，我们会继续工作循环。
     let hasMoreWork = true;
     try {
+      // / true工作没做完，false 做完
       hasMoreWork = flushWork(currentTime);
     } finally {
       if (hasMoreWork) {
         // If there's more work, schedule the next message event at the end
         // of the preceding one.
+        // 如果还有更多工作要做，则在前一个消息事件结束时调度下一个消息事件
+        // 使用MessageChannel，进行一个message事件的调度，放到任务队列里面
         schedulePerformWorkUntilDeadline();
       } else {
+        // 任务完成 
         isMessageLoopRunning = false;
       }
     }
@@ -527,6 +601,7 @@ if (typeof localSetImmediate === 'function') {
   // If other browsers ever implement it, it's better to use it.
   // Although both of these would be inferior to native scheduling.
   schedulePerformWorkUntilDeadline = () => {
+    // setImmediate
     localSetImmediate(performWorkUntilDeadline);
   };
 } else if (typeof MessageChannel !== 'undefined') {
@@ -534,21 +609,27 @@ if (typeof localSetImmediate === 'function') {
   // We prefer MessageChannel because of the 4ms setTimeout clamping.
   const channel = new MessageChannel();
   const port = channel.port2;
+  // / port1监听消息
   channel.port1.onmessage = performWorkUntilDeadline;
   schedulePerformWorkUntilDeadline = () => {
+    //  port2发送消息
     port.postMessage(null);
   };
 } else {
   // We should only fallback here in non-browser environments.
   schedulePerformWorkUntilDeadline = () => {
     // $FlowFixMe[not-a-function] nullable value
+    // setTimeout
     localSetTimeout(performWorkUntilDeadline, 0);
   };
 }
 
+// 调用 schedulePerformWorkUntilDeadline
 function requestHostCallback() {
   if (!isMessageLoopRunning) {
     isMessageLoopRunning = true;
+    // 根据不同的环境：判断使用MessageChannel与setImmediate、setTimeout
+    // 来生成宏任务，大多数用MessageChannel
     schedulePerformWorkUntilDeadline();
   }
 }
