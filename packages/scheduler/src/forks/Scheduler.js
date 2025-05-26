@@ -105,15 +105,17 @@ const localSetImmediate =
 function advanceTimers(currentTime: number) {
   // Check for tasks that are no longer delayed and add them to the queue.
   let timer = peek(timerQueue);
+  // 遍历整个 timerQueue
   while (timer !== null) {
     if (timer.callback === null) {
       // Timer was cancelled.
-      pop(timerQueue);
+      pop(timerQueue)
     } else if (timer.startTime <= currentTime) {
-      // Timer fired. Transfer to the task queue.
+      // Timer fired. Transfer to the task queue. 定时器触发。转移到任务队列
       pop(timerQueue);
       timer.sortIndex = timer.expirationTime;
       push(taskQueue, timer);
+      // 信息收集
       if (enableProfiling) {
         markTaskStart(timer, currentTime);
         timer.isQueued = true;
@@ -126,17 +128,25 @@ function advanceTimers(currentTime: number) {
   }
 }
 
+/**
+ * @params currentTime :当前时间
+ * */ 
 function handleTimeout(currentTime: number) {
   isHostTimeoutScheduled = false;
+  // 编辑延时任务，取出时间到了的任务放入task队列
   advanceTimers(currentTime);
 
   if (!isHostCallbackScheduled) {
+    // 普通任务不为空
     if (peek(taskQueue) !== null) {
       isHostCallbackScheduled = true;
+      // 调度
       requestHostCallback();
     } else {
+      // 小顶堆里面的一个方法
       const firstTimer = peek(timerQueue);
       if (firstTimer !== null) {
+        // 调度 延时任务
         requestHostTimeout(handleTimeout, firstTimer.startTime - currentTime);
       }
     }
@@ -636,9 +646,10 @@ function requestHostCallback() {
 
 function requestHostTimeout(
   callback: (currentTime: number) => void,
+  // 延时时间
   ms: number,
 ) {
-  // $FlowFixMe[not-a-function] nullable value
+  // $FlowFixMe[not-a-function] nullable value ---> SetTimeout
   taskTimeoutID = localSetTimeout(() => {
     callback(getCurrentTime());
   }, ms);
