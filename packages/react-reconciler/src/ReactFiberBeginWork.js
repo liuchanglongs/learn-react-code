@@ -3821,6 +3821,11 @@ function attemptEarlyBailoutIfNoScheduledUpdate(
   return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
 }
 
+/**
+ * @param {*} current curentFibernde 当前Fibernde
+ * @param {*} workInProgress 内存的Fibernde/ 旧的
+ * @param {*} renderLanes  Lanes 更细度的优先级控制
+ * */ 
 function beginWork(
   current: Fiber | null,
   workInProgress: Fiber,
@@ -3846,6 +3851,7 @@ function beginWork(
   }
 
   if (current !== null) {
+    // 更新
     const oldProps = current.memoizedProps;
     const newProps = workInProgress.pendingProps;
 
@@ -3892,6 +3898,7 @@ function beginWork(
       }
     }
   } else {
+    // 首次渲染
     didReceiveUpdate = false;
 
     if (getIsHydrating() && isForkedChild(workInProgress)) {
@@ -3916,7 +3923,7 @@ function beginWork(
   // sometimes bails out later in the begin phase. This indicates that we should
   // move this assignment out of the common path and into each branch.
   workInProgress.lanes = NoLanes;
-
+  // 根据不同的tag就行不同的处理
   switch (workInProgress.tag) {
     case LazyComponent: {
       const elementType = workInProgress.elementType;

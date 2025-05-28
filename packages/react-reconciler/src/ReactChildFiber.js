@@ -392,7 +392,7 @@ function createChildReconciler(
     currentFirstChild: Fiber | null,
   ): null {
     if (!shouldTrackSideEffects) {
-      // Noop.
+      // Noop. 初始化
       return null;
     }
 
@@ -2002,8 +2002,10 @@ function createChildReconciler(
   return reconcileChildFibers;
 }
 
+//  更新阶段
 export const reconcileChildFibers: ChildReconciler =
   createChildReconciler(true);
+//  mount阶段
 export const mountChildFibers: ChildReconciler = createChildReconciler(false);
 
 export function resetChildReconcilerOnUnwind(): void {
